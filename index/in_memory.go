@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"sort"
 
+	"github.com/disintegration/imaging"
 	"github.com/timwu/mosaicer/storage"
 	"github.com/timwu/mosaicer/util"
 )
@@ -96,11 +97,20 @@ func BuildInMemoryIndex(storage storage.Storage, multiple int, fuzziness int) (I
 		if index.samples[data.AspectRatio] == nil {
 			index.samples[data.AspectRatio] = make(map[int]sample)
 		}
+		rotatedAspectRatio := image.Point{X: data.AspectRatio.Y, Y: data.AspectRatio.X}
+		if index.samples[rotatedAspectRatio] == nil {
+			index.samples[rotatedAspectRatio] = make(map[int]sample)
+		}
 		// The requested multiple is not available, error out
 		if len(data.Samples) < (multiple + 1) {
 			return nil, fmt.Errorf("requested multiple %d not available for %s", multiple, key)
 		}
 		index.samples[data.AspectRatio][id] = toSample(data.Samples[multiple])
+
+		// Store the rotated image if it is not square
+		if !rotatedAspectRatio.Eq(data.AspectRatio) {
+			index.samples[rotatedAspectRatio][id] = toSample(imaging.Rotate90(data.Samples[multiple]))
+		}
 	}
 	return index, nil
 }

@@ -91,6 +91,12 @@ func doBuild(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return err
 			}
+
+			// If the image is rotated relative to the target image's aspect ratio, rotate it first
+			if ar := util.AspectRatio(selectedImg); ar.X == aspectRatio.Y && ar.Y == aspectRatio.X {
+				selectedImg = imaging.Rotate90(selectedImg)
+			}
+
 			resizedTile := imaging.Resize(selectedImg, tileSize.X, 0, imaging.NearestNeighbor)
 			if err := util.Paste(dstImg, resizedTile, image.Point{X: j * tileSize.X, Y: i * tileSize.Y}); err != nil {
 				return err
