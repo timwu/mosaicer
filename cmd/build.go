@@ -4,7 +4,9 @@ import (
 	"image"
 	"image/color"
 	"log"
+	"time"
 
+	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/cheggaaa/pb/v3"
 	"github.com/disintegration/imaging"
 	"github.com/spf13/cobra"
@@ -85,20 +87,29 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	log.Printf("dst img size %v", dstImgSize)
 	dstImg := imaging.New(dstImgSize.X, dstImgSize.Y, color.NRGBA{0, 0, 0, 0})
 	progressBar = pb.StartNew(tiles * tiles)
+
+	imageCache := ttlcache.NewCache()
+	imageCache.SetLoaderFunction(func(name string) (interface{}, time.Duration, error) {
+		selectedImg, err := imageSource.GetImage(name)
+		if err != nil {
+			return nil, 0 * time.Second, err
+		}
+
+		// If the image is rotated relative to the target image's aspect ratio, rotate it first
+		if ar := util.AspectRatio(selectedImg); ar.X == aspectRatio.Y && ar.Y == aspectRatio.X {
+			selectedImg = imaging.Rotate90(selectedImg)
+		}
+
+		return imaging.Resize(selectedImg, tileSize.X, 0, imaging.NearestNeighbor), 60 * time.Second, nil
+	})
+
 	for i, row := range tileNames {
 		for j, selected := range row {
-			selectedImg, err := imageSource.GetImage(selected)
+			resizedTile, err := imageCache.Get(selected)
 			if err != nil {
 				return err
 			}
-
-			// If the image is rotated relative to the target image's aspect ratio, rotate it first
-			if ar := util.AspectRatio(selectedImg); ar.X == aspectRatio.Y && ar.Y == aspectRatio.X {
-				selectedImg = imaging.Rotate90(selectedImg)
-			}
-
-			resizedTile := imaging.Resize(selectedImg, tileSize.X, 0, imaging.NearestNeighbor)
-			if err := util.Paste(dstImg, resizedTile, image.Point{X: j * tileSize.X, Y: i * tileSize.Y}); err != nil {
+			if err := util.Paste(dstImg, resizedTile.(*image.NRGBA), image.Point{X: j * tileSize.X, Y: i * tileSize.Y}); err != nil {
 				return err
 			}
 			progressBar.Increment()
