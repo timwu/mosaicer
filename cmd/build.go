@@ -24,11 +24,13 @@ var (
 	src          = ""
 	tiles        = 0
 	tileMultiple = 20
+	fuzziness    = 0
 )
 
 func init() {
 	buildCmd.Flags().StringVar(&src, "source", "", "image source. must already have a built storage")
 	buildCmd.Flags().IntVar(&tiles, "tiles", 100, "number of tiles in each dimension")
+	buildCmd.Flags().IntVar(&fuzziness, "fuzziness", 5, "number of top images to consider for random selection")
 	rootCmd.AddCommand(buildCmd)
 }
 
@@ -42,7 +44,7 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	imgIndex, err := index.BuildInMemoryIndex(storage, 1)
+	imgIndex, err := index.BuildInMemoryIndex(storage, 1, fuzziness)
 	if err != nil {
 		return err
 	}

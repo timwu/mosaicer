@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"math/rand"
+	"sort"
 
 	"github.com/timwu/mosaicer/storage"
 	"github.com/timwu/mosaicer/util"
@@ -12,9 +14,10 @@ import (
 type sample []uint8
 
 type inMemoryIndex struct {
-	keyToID  map[string]int
-	idToKey  []string
-	multiple int
+	keyToID   map[string]int
+	idToKey   []string
+	multiple  int
+	fuzziness int
 	// all the sample data, maps from aspect ratio -> samples by id
 	samples map[image.Point]map[int]sample
 }
@@ -45,7 +48,6 @@ func distance(left, right sample) float64 {
 }
 
 func (i *inMemoryIndex) Search(img *image.NRGBA, aspectRatio image.Point) (string, error) {
-	// defer util.LogTime("search")()
 	size := img.Rect.Size()
 	if i.multiple == 0 {
 		if size.X != 1 || size.Y != 1 {
@@ -56,35 +58,34 @@ func (i *inMemoryIndex) Search(img *image.NRGBA, aspectRatio image.Point) (strin
 	}
 
 	testSample := toSample(img)
-	shortestDistance := math.MaxFloat64
-	closestID := -1
+	idDistances := make(map[int]float64)
+	ids := make([]int, 0)
 	for id := range i.samples[aspectRatio] {
-		d := distance(i.samples[aspectRatio][id], testSample)
-		if d < shortestDistance {
-			shortestDistance = d
-			closestID = id
-		}
+		idDistances[id] = distance(testSample, i.samples[aspectRatio][id])
+		ids = append(ids, id)
 	}
 
-	if closestID == -1 {
-		return "", fmt.Errorf("could not find any samples")
-	}
+	sort.Slice(ids, func(i, j int) bool {
+		return idDistances[ids[i]] < idDistances[ids[j]]
+	})
 
-	return i.idToKey[closestID], nil
+	return i.idToKey[ids[rand.Intn(i.fuzziness)]], nil
 }
 
 // BuildInMemoryIndex builds an in memory index of the image samples at the given multiple of the aspect ratio. 0 is special in that it is a 1x1.
-func BuildInMemoryIndex(storage storage.Storage, multiple int) (Index, error) {
+// fuzziness is how many of the top-N best matching tiles to randomly choose from for final selection
+func BuildInMemoryIndex(storage storage.Storage, multiple int, fuzziness int) (Index, error) {
 	defer util.LogTime("build index")()
 	keys, err := storage.Keys()
 	if err != nil {
 		return nil, err
 	}
 	index := &inMemoryIndex{
-		keyToID:  make(map[string]int),
-		idToKey:  keys,
-		multiple: multiple,
-		samples:  make(map[image.Point]map[int]sample),
+		keyToID:   make(map[string]int),
+		idToKey:   keys,
+		multiple:  multiple,
+		fuzziness: fuzziness,
+		samples:   make(map[image.Point]map[int]sample),
 	}
 	for id, key := range keys {
 		index.keyToID[key] = id
