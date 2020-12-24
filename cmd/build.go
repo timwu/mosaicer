@@ -56,27 +56,48 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	referenceImg := imaging.Resize(targetImg, tiles*aspectRatio.X, 0, imaging.NearestNeighbor)
 	log.Printf("reference img aspect ratio %v, size %v", util.AspectRatio(referenceImg), referenceImg.Rect.Size())
 
-	dstImg := imaging.New(aspectRatio.X*tileMultiple*tiles, aspectRatio.Y*tileMultiple*tiles, color.NRGBA{0, 0, 0, 0})
 	progressBar := pb.StartNew(tiles * tiles)
+	tileNames := make([][]string, tiles)
+	log.Printf("selecting images for tiles")
 	for i := 0; i < tiles; i++ {
+		tileNames[i] = make([]string, tiles)
 		for j := 0; j < tiles; j++ {
 			clip := imaging.Crop(referenceImg, image.Rectangle{
-				Min: image.Point{X: i * aspectRatio.X, Y: j * aspectRatio.Y},
-				Max: image.Point{X: (i + 1) * aspectRatio.X, Y: (j + 1) * aspectRatio.Y},
+				Min: image.Point{X: j * aspectRatio.X, Y: i * aspectRatio.Y},
+				Max: image.Point{X: (j + 1) * aspectRatio.X, Y: (i + 1) * aspectRatio.Y},
 			})
 			selected, err := imgIndex.Search(imaging.Resize(clip, aspectRatio.X, aspectRatio.Y, imaging.NearestNeighbor), aspectRatio)
 			if err != nil {
 				return err
 			}
-			selectedImg, err := imageSource.GetImage(selected)
-			if err != nil {
-				return err
-			}
-			dstImg = imaging.Paste(dstImg, imaging.Resize(selectedImg, aspectRatio.X*tileMultiple, 0, imaging.NearestNeighbor), image.Point{X: i * aspectRatio.X * tileMultiple, Y: j * aspectRatio.Y * tileMultiple})
+			tileNames[i][j] = selected
+
 			progressBar.Increment()
 		}
 	}
 	progressBar.Finish()
+
+	log.Printf("Building output image")
+	tileSize := aspectRatio.Mul(tileMultiple)
+	dstImgSize := tileSize.Mul(tiles)
+	log.Printf("dst img size %v", dstImgSize)
+	dstImg := imaging.New(dstImgSize.X, dstImgSize.Y, color.NRGBA{0, 0, 0, 0})
+	progressBar = pb.StartNew(tiles * tiles)
+	for i, row := range tileNames {
+		for j, selected := range row {
+			selectedImg, err := imageSource.GetImage(selected)
+			if err != nil {
+				return err
+			}
+			resizedTile := imaging.Resize(selectedImg, tileSize.X, 0, imaging.NearestNeighbor)
+			if err := util.Paste(dstImg, resizedTile, image.Point{X: j * tileSize.X, Y: i * tileSize.Y}); err != nil {
+				return err
+			}
+			progressBar.Increment()
+		}
+	}
+	progressBar.Finish()
+
 	imaging.Save(dstImg, args[0]+".mosaic.jpg")
 	return nil
 }
