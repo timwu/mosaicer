@@ -15,9 +15,12 @@ var (
 		Short: "Index image files for photo mosaic generation",
 		RunE:  doIndex,
 	}
+
+	nThreads = 4
 )
 
 func init() {
+	indexCmd.Flags().IntVar(&nThreads, "threads", 4, "Number of threads to use for indexing")
 	rootCmd.AddCommand(indexCmd)
 }
 
@@ -35,19 +38,25 @@ func doIndex(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	for i, name := range names {
-		img, err := imageSource.GetImage(name)
-		if err != nil {
-			return err
-		}
-		data, err := analysis.Simple(img)
-		if err != nil {
-			return err
-		}
-		if err := storage.Store(name, data); err != nil {
-			return err
-		}
-		log.Printf("Stored %s (%d/%d)", name, i+1, len(names))
+	liveThreads := make(chan bool, nThreads)
+	for _, name := range names {
+		liveThreads <- true
+		name := name
+		go func() {
+			defer func() { <-liveThreads }()
+			img, err := imageSource.GetImage(name)
+			if err != nil {
+				log.Fatal(err)
+			}
+			data, err := analysis.Simple(img)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err := storage.Store(name, data); err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("Stored %s", name)
+		}()
 	}
 	return nil
 }
