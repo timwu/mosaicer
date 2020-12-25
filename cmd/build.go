@@ -20,16 +20,18 @@ var (
 		RunE:  doBuild,
 	}
 
-	src          = ""
-	tiles        = 0
-	tileMultiple = 20
-	fuzziness    = 0
+	src                    = ""
+	tiles                  = 0
+	tileMultiple           = 20
+	fuzziness              = 0
+	referencePatchMultiple = 1
 )
 
 func init() {
 	buildCmd.Flags().StringVar(&src, "source", "", "image source. must already have a built storage")
 	buildCmd.Flags().IntVar(&tiles, "tiles", 100, "number of tiles in each dimension")
 	buildCmd.Flags().IntVar(&fuzziness, "fuzziness", 5, "number of top images to consider for random selection")
+	buildCmd.Flags().IntVar(&referencePatchMultiple, "referencePatchMultiple", 2, "Multiple of the aspect ratio for sizing a patch of the reference image")
 	rootCmd.AddCommand(buildCmd)
 }
 
@@ -39,7 +41,7 @@ func doBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer imageSource.Close()
-	imgIndex, err := index.NewBoltIndex(src, 1, fuzziness)
+	imgIndex, err := index.NewBoltIndex(src, referencePatchMultiple, fuzziness)
 	if err != nil {
 		return err
 	}
@@ -49,8 +51,9 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	aspectRatio := util.AspectRatio(targetImg)
+	referencePatchSize := aspectRatio.Mul(referencePatchMultiple)
 	log.Printf("target img aspect ratio %v, base resolution of %v", aspectRatio, targetImg.Bounds().Size())
-	referenceImg := imaging.Resize(targetImg, tiles*aspectRatio.X, 0, imaging.NearestNeighbor)
+	referenceImg := imaging.Resize(targetImg, tiles*referencePatchSize.X, 0, imaging.NearestNeighbor)
 	log.Printf("reference img aspect ratio %v, size %v", util.AspectRatio(referenceImg), referenceImg.Rect.Size())
 
 	progressBar := pb.StartNew(tiles * tiles)
@@ -59,10 +62,10 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	for i := 0; i < tiles; i++ {
 		for j := 0; j < tiles; j++ {
 			clip := imaging.Crop(referenceImg, image.Rectangle{
-				Min: image.Point{X: j * aspectRatio.X, Y: i * aspectRatio.Y},
-				Max: image.Point{X: (j + 1) * aspectRatio.X, Y: (i + 1) * aspectRatio.Y},
+				Min: image.Point{X: j * referencePatchSize.X, Y: i * referencePatchSize.Y},
+				Max: image.Point{X: (j + 1) * referencePatchSize.X, Y: (i + 1) * referencePatchSize.Y},
 			})
-			selected, err := imgIndex.Search(imaging.Resize(clip, aspectRatio.X, aspectRatio.Y, imaging.NearestNeighbor), aspectRatio)
+			selected, err := imgIndex.Search(clip, aspectRatio)
 			if err != nil {
 				return err
 			}
