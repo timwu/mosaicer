@@ -74,6 +74,10 @@ func addName(name string, rootBucket *bolt.Bucket) (int, error) {
 }
 
 func (b *boltIndexBuilder) Index(name string, data *analysis.ImageData) error {
+	// Don't bother storing images with no samples
+	if len(data.Samples) == 0 {
+		return nil
+	}
 	return b.db.Batch(func(tx *bolt.Tx) error {
 		rootBucket, err := tx.CreateBucketIfNotExists(rootKey)
 		if err != nil {

@@ -3,6 +3,7 @@ package cmd
 import (
 	"log"
 
+	"github.com/cheggaaa/pb/v3"
 	"github.com/spf13/cobra"
 	"github.com/timwu/mosaicer/analysis"
 	"github.com/timwu/mosaicer/index"
@@ -41,11 +42,15 @@ func doIndex(cmd *cobra.Command, args []string) error {
 	defer boltIndex.Close()
 
 	liveThreads := make(chan bool, nThreads)
+	progressBar := pb.StartNew(len(names))
 	for _, name := range names {
 		liveThreads <- true
 		name := name
 		go func() {
-			defer func() { <-liveThreads }()
+			defer func() {
+				<-liveThreads
+				progressBar.Increment()
+			}()
 			img, err := imageSource.GetImage(name)
 			if err != nil {
 				log.Fatal(err)
@@ -57,8 +62,11 @@ func doIndex(cmd *cobra.Command, args []string) error {
 			if err := boltIndex.Index(name, data); err != nil {
 				log.Fatal(err)
 			}
-			log.Printf("Stored %s", name)
 		}()
 	}
+	for i := 0; i < nThreads; i++ {
+		liveThreads <- true
+	}
+	progressBar.Finish()
 	return nil
 }

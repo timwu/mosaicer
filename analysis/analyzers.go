@@ -18,6 +18,11 @@ func Simple(img image.Image) (*ImageData, error) {
 		Samples:     make([]*image.NRGBA, 0),
 	}
 
+	// Skip images with weird aspect ratios (not 4:3)
+	if data.AspectRatio.X*data.AspectRatio.Y > 150 {
+		return data, nil
+	}
+
 	for i := 0; i < samples; i++ {
 		size := data.AspectRatio.Mul(i)
 		if i == 0 {
