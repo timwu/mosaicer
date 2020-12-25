@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/timwu/mosaicer/index"
 	"github.com/timwu/mosaicer/source"
-	"github.com/timwu/mosaicer/storage"
 	"github.com/timwu/mosaicer/util"
 )
 
@@ -40,11 +39,7 @@ func doBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer imageSource.Close()
-	storage, err := storage.NewBoltStorage(src)
-	if err != nil {
-		return err
-	}
-	imgIndex, err := index.BuildInMemoryIndex(storage, 1, fuzziness)
+	imgIndex, err := index.NewBoltIndex(src, 1, fuzziness)
 	if err != nil {
 		return err
 	}

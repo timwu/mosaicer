@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/timwu/mosaicer/analysis"
+	"github.com/timwu/mosaicer/index"
 	"github.com/timwu/mosaicer/source"
-	"github.com/timwu/mosaicer/storage"
 )
 
 var (
@@ -34,10 +34,12 @@ func doIndex(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	storage, err := storage.NewBoltStorage(args[0])
+	boltIndex, err := index.NewBoltIndexBuilder(args[0])
 	if err != nil {
 		return err
 	}
+	defer boltIndex.Close()
+
 	liveThreads := make(chan bool, nThreads)
 	for _, name := range names {
 		liveThreads <- true
@@ -52,7 +54,7 @@ func doIndex(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				log.Fatal(err)
 			}
-			if err := storage.Store(name, data); err != nil {
+			if err := boltIndex.Index(name, data); err != nil {
 				log.Fatal(err)
 			}
 			log.Printf("Stored %s", name)

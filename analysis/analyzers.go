@@ -15,7 +15,7 @@ const (
 func Simple(img image.Image) (*ImageData, error) {
 	data := &ImageData{
 		AspectRatio: util.AspectRatio(img),
-		Samples:     make([]*image.NRGBA, samples),
+		Samples:     make([]*image.NRGBA, 0),
 	}
 
 	for i := 0; i < samples; i++ {
@@ -23,7 +23,12 @@ func Simple(img image.Image) (*ImageData, error) {
 		if i == 0 {
 			size = image.Point{X: 1, Y: 1}
 		}
-		data.Samples[i] = imaging.Resize(img, size.X, size.Y, imaging.NearestNeighbor)
+		resized := imaging.Resize(img, size.X, size.Y, imaging.NearestNeighbor)
+		data.Samples = append(data.Samples, resized)
+		// For non-square images, also add in the rotation
+		if size.X != size.Y {
+			data.Samples = append(data.Samples, imaging.Rotate90(resized))
+		}
 	}
 
 	return data, nil
