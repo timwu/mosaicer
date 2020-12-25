@@ -18,10 +18,12 @@ var (
 	}
 
 	nThreads = 4
+	samples  = 4
 )
 
 func init() {
 	indexCmd.Flags().IntVar(&nThreads, "threads", 4, "Number of threads to use for indexing")
+	indexCmd.Flags().IntVar(&samples, "samples", 4, "Number of samples per-image to take")
 	rootCmd.AddCommand(indexCmd)
 }
 
@@ -55,7 +57,7 @@ func doIndex(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				log.Fatal(err)
 			}
-			data, err := analysis.Simple(img)
+			data, err := analysis.Simple(img, samples)
 			if err != nil {
 				log.Fatal(err)
 			}
