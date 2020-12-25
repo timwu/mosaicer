@@ -134,13 +134,25 @@ func getName(id int, rootBucket *bolt.Bucket) (string, error) {
 	return string(name), nil
 }
 
+func getDistances(dataBucket *bolt.Bucket, size image.Point, bytes []byte, idDistances map[int]float64) error {
+	dimensionBucket := dataBucket.Bucket(pointToBytes(size))
+	if dimensionBucket == nil {
+		return fmt.Errorf("dimension bucket not found")
+	}
+	return dimensionBucket.ForEach(func(k, v []byte) error {
+		id := bytesToInt(k)
+		idDistances[id] = distance(bytes, v)
+		return nil
+	})
+}
+
 func (b *boltIndex) Search(img *image.NRGBA, aspectRatio image.Point) (string, error) {
 	selected := ""
 	size := aspectRatio.Mul(b.multiple)
 	if b.multiple == 0 {
 		size = image.Point{X: 1, Y: 1}
 	}
-	queryBytes := imaging.Resize(img, size.X, size.Y, imaging.NearestNeighbor).Pix
+	resized := imaging.Resize(img, size.X, size.Y, imaging.NearestNeighbor)
 
 	if err := b.db.View(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket(rootKey)
@@ -151,20 +163,25 @@ func (b *boltIndex) Search(img *image.NRGBA, aspectRatio image.Point) (string, e
 		if dataBucket == nil {
 			return fmt.Errorf("data bucket not found")
 		}
-		dimensionBucket := dataBucket.Bucket(pointToBytes(size))
-		if dimensionBucket == nil {
-			return fmt.Errorf("dimension bucket not found")
-		}
 
 		idDistances := make(map[int]float64)
-		ids := make([]int, 0)
-		dimensionBucket.ForEach(func(k, v []byte) error {
-			id := bytesToInt(k)
-			idDistances[id] = distance(queryBytes, v)
-			ids = append(ids, id)
-			return nil
-		})
+		if err := getDistances(dataBucket, size, resized.Pix, idDistances); err != nil {
+			return err
+		}
+		// If the image is not square, also consider the rotated version
+		if size.X != size.Y {
+			rotated := imaging.Rotate90(resized)
+			if err := getDistances(dataBucket, rotated.Rect.Size(), rotated.Pix, idDistances); err != nil {
+				return err
+			}
+		}
 
+		ids := make([]int, len(idDistances))
+		i := 0
+		for id := range idDistances {
+			ids[i] = id
+			i++
+		}
 		sort.Slice(ids, func(i, j int) bool {
 			return idDistances[ids[i]] < idDistances[ids[j]]
 		})

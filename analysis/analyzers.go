@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	samples = 2
+	samples = 3
 )
 
 // Simple performs a simple analysis of the given image into a 1x1 and aspect-ratio sized image samples
@@ -26,9 +26,9 @@ func Simple(img image.Image) (*ImageData, error) {
 		resized := imaging.Resize(img, size.X, size.Y, imaging.NearestNeighbor)
 		data.Samples = append(data.Samples, resized)
 		// For non-square images, also add in the rotation
-		if size.X != size.Y {
-			data.Samples = append(data.Samples, imaging.Rotate90(resized))
-		}
+		// if size.X != size.Y {
+		// 	data.Samples = append(data.Samples, imaging.Rotate90(resized))
+		// }
 	}
 
 	return data, nil
