@@ -87,7 +87,7 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	log.Printf("dst img size %v", dstImgSize)
 	dstImg := imaging.New(dstImgSize.X, dstImgSize.Y, color.NRGBA{0, 0, 0, 0})
 	progressBar = pb.StartNew(tiles * tiles)
-
+	rotatedTiles := 0
 	for selectedName, points := range tileNames {
 		selectedImg, err := imageSource.GetImage(selectedName)
 		if err != nil {
@@ -96,7 +96,8 @@ func doBuild(cmd *cobra.Command, args []string) error {
 
 		// If the image is rotated relative to the target image's aspect ratio, rotate it first
 		if ar := util.AspectRatio(selectedImg); ar.X == aspectRatio.Y && ar.Y == aspectRatio.X {
-			selectedImg = imaging.Rotate90(selectedImg)
+			selectedImg = imaging.Rotate270(selectedImg)
+			rotatedTiles++
 		}
 
 		resizedTile := imaging.Resize(selectedImg, tileSize.X, 0, imaging.NearestNeighbor)
@@ -109,7 +110,7 @@ func doBuild(cmd *cobra.Command, args []string) error {
 		}
 	}
 	progressBar.Finish()
-
+	log.Printf("Used %d rotated tiles", rotatedTiles)
 	imaging.Save(dstImg, args[0]+".mosaic.jpg")
 	return nil
 }
