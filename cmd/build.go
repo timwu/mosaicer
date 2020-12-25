@@ -43,26 +43,48 @@ func selectImages(imgIndex index.Index, targetImg image.Image, aspectRatio image
 
 	progressBar := pb.StartNew(tiles * tiles)
 	tileNames := make(map[string][]image.Point)
-	log.Printf("selecting images for tiles")
-	for i := 0; i < tiles; i++ {
-		for j := 0; j < tiles; j++ {
-			clip := imaging.Crop(referenceImg, image.Rectangle{
-				Min: image.Point{X: j * referencePatchSize.X, Y: i * referencePatchSize.Y},
-				Max: image.Point{X: (j + 1) * referencePatchSize.X, Y: (i + 1) * referencePatchSize.Y},
-			})
-			selected, err := imgIndex.Search(clip, aspectRatio)
-			if err != nil {
-				return nil, err
+
+	type tileSelection struct {
+		selectedImage string
+		point         image.Point
+	}
+	selectionsChan := make(chan tileSelection, 10)
+	done := make(chan bool)
+	go func() {
+		for i := 0; i < tiles*tiles; i++ {
+			t := <-selectionsChan
+			if tileNames[t.selectedImage] == nil {
+				tileNames[t.selectedImage] = make([]image.Point, 0)
 			}
-			if tileNames[selected] == nil {
-				tileNames[selected] = make([]image.Point, 0)
-			}
-			tileNames[selected] = append(tileNames[selected], image.Point{X: j, Y: i})
+			tileNames[t.selectedImage] = append(tileNames[t.selectedImage], t.point)
 
 			progressBar.Increment()
 		}
+		progressBar.Finish()
+		done <- true
+	}()
+
+	log.Printf("selecting images for tiles")
+	for i := 0; i < tiles; i++ {
+		for j := 0; j < tiles; j++ {
+			i, j := i, j
+			go func() {
+				clip := imaging.Crop(referenceImg, image.Rectangle{
+					Min: image.Point{X: j * referencePatchSize.X, Y: i * referencePatchSize.Y},
+					Max: image.Point{X: (j + 1) * referencePatchSize.X, Y: (i + 1) * referencePatchSize.Y},
+				})
+				selected, err := imgIndex.Search(clip, aspectRatio)
+				if err != nil {
+					log.Fatal(err)
+				}
+				selectionsChan <- tileSelection{
+					selectedImage: selected,
+					point:         image.Point{X: j, Y: i},
+				}
+			}()
+		}
 	}
-	progressBar.Finish()
+	<-done
 	return tileNames, nil
 }
 
