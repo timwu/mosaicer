@@ -35,22 +35,7 @@ func init() {
 	rootCmd.AddCommand(buildCmd)
 }
 
-func doBuild(cmd *cobra.Command, args []string) error {
-	imageSource, err := source.NewImageSource(src)
-	if err != nil {
-		return err
-	}
-	defer imageSource.Close()
-	imgIndex, err := index.NewBoltIndex(src, referencePatchMultiple, fuzziness)
-	if err != nil {
-		return err
-	}
-	targetImg, err := imaging.Open(args[0])
-	if err != nil {
-		return err
-	}
-
-	aspectRatio := util.AspectRatio(targetImg)
+func selectImages(imgIndex index.Index, targetImg image.Image, aspectRatio image.Point) (map[string][]image.Point, error) {
 	referencePatchSize := aspectRatio.Mul(referencePatchMultiple)
 	log.Printf("target img aspect ratio %v, base resolution of %v", aspectRatio, targetImg.Bounds().Size())
 	referenceImg := imaging.Resize(targetImg, tiles*referencePatchSize.X, 0, imaging.NearestNeighbor)
@@ -67,7 +52,7 @@ func doBuild(cmd *cobra.Command, args []string) error {
 			})
 			selected, err := imgIndex.Search(clip, aspectRatio)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if tileNames[selected] == nil {
 				tileNames[selected] = make([]image.Point, 0)
@@ -78,20 +63,21 @@ func doBuild(cmd *cobra.Command, args []string) error {
 		}
 	}
 	progressBar.Finish()
+	return tileNames, nil
+}
 
-	log.Printf("Used %d unique images.", len(tileNames))
-
+func createOutputImage(imageSource source.ImageSource, tileNames map[string][]image.Point, aspectRatio image.Point) (*image.NRGBA, error) {
 	log.Printf("Building output image")
 	tileSize := aspectRatio.Mul(tileMultiple)
 	dstImgSize := tileSize.Mul(tiles)
 	log.Printf("dst img size %v", dstImgSize)
 	dstImg := imaging.New(dstImgSize.X, dstImgSize.Y, color.NRGBA{0, 0, 0, 0})
-	progressBar = pb.StartNew(tiles * tiles)
+	progressBar := pb.StartNew(tiles * tiles)
 	rotatedTiles := 0
 	for selectedName, points := range tileNames {
 		selectedImg, err := imageSource.GetImage(selectedName)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// If the image is rotated relative to the target image's aspect ratio, rotate it first
@@ -104,13 +90,42 @@ func doBuild(cmd *cobra.Command, args []string) error {
 
 		for _, point := range points {
 			if err := util.Paste(dstImg, resizedTile, image.Point{X: point.X * tileSize.X, Y: point.Y * tileSize.Y}); err != nil {
-				return err
+				return nil, err
 			}
 			progressBar.Increment()
 		}
 	}
 	progressBar.Finish()
 	log.Printf("Used %d rotated tiles", rotatedTiles)
+	return dstImg, nil
+}
+
+func doBuild(cmd *cobra.Command, args []string) error {
+	imageSource, err := source.NewImageSource(src)
+	if err != nil {
+		return err
+	}
+	defer imageSource.Close()
+	imgIndex, err := index.NewBoltIndex(src, referencePatchMultiple, fuzziness)
+	if err != nil {
+		return err
+	}
+	targetImg, err := imaging.Open(args[0])
+	if err != nil {
+		return err
+	}
+
+	aspectRatio := util.AspectRatio(targetImg)
+	tileNames, err := selectImages(imgIndex, targetImg, aspectRatio)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Used %d unique images.", len(tileNames))
+	dstImg, err := createOutputImage(imageSource, tileNames, aspectRatio)
+	if err != nil {
+		return err
+	}
 	imaging.Save(dstImg, args[0]+".mosaic.jpg")
 	return nil
 }
