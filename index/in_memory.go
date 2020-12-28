@@ -3,7 +3,6 @@ package index
 import (
 	"fmt"
 	"image"
-	"math"
 	"math/rand"
 	"sort"
 
@@ -11,8 +10,6 @@ import (
 	"github.com/timwu/mosaicer/storage"
 	"github.com/timwu/mosaicer/util"
 )
-
-type sample []uint8
 
 type inMemoryIndex struct {
 	keyToID   map[string]int
@@ -29,23 +26,6 @@ func toSample(img *image.NRGBA) sample {
 		return img.Pix
 	}
 	panic("Wrong byte size!")
-}
-
-func colorDistance(left, right []uint8) float64 {
-	redMean := (float64(left[0]) + float64(right[0])) / 2.0
-	redDiff := float64(left[0]) - float64(right[0])
-	greenDiff := float64(left[1]) - float64(right[1])
-	blueDiff := float64(left[2]) - float64(right[2])
-
-	return math.Sqrt((2.0+redMean/256.0)*redDiff*redDiff + 4*greenDiff*greenDiff + (2+(255.0-redMean)/256.0)*blueDiff*blueDiff)
-}
-
-func distance(left, right sample) float64 {
-	var sumSquares float64
-	for i := 0; i < len(left); i += 4 {
-		sumSquares += colorDistance(left[i:i+4], right[i:i+4])
-	}
-	return sumSquares
 }
 
 func (i *inMemoryIndex) Search(img *image.NRGBA, aspectRatio image.Point) (string, error) {

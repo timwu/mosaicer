@@ -4,6 +4,8 @@ import (
 	"image"
 	"image/color"
 	"log"
+	"os"
+	"runtime/pprof"
 
 	"github.com/cheggaaa/pb/v3"
 	"github.com/disintegration/imaging"
@@ -25,6 +27,7 @@ var (
 	tileMultiple           = 20
 	fuzziness              = 0
 	referencePatchMultiple = 1
+	cpuprofile             = ""
 )
 
 func init() {
@@ -32,6 +35,7 @@ func init() {
 	buildCmd.Flags().IntVar(&tiles, "tiles", 100, "number of tiles in each dimension")
 	buildCmd.Flags().IntVar(&fuzziness, "fuzziness", 5, "number of top images to consider for random selection")
 	buildCmd.Flags().IntVar(&referencePatchMultiple, "referencePatchMultiple", 2, "Multiple of the aspect ratio for sizing a patch of the reference image")
+	buildCmd.Flags().StringVar(&cpuprofile, "cpuprofile", "", "write cpu profile to `file`")
 	rootCmd.AddCommand(buildCmd)
 }
 
@@ -68,20 +72,20 @@ func selectImages(imgIndex index.Index, targetImg image.Image, aspectRatio image
 	for i := 0; i < tiles; i++ {
 		for j := 0; j < tiles; j++ {
 			i, j := i, j
-			go func() {
-				clip := imaging.Crop(referenceImg, image.Rectangle{
-					Min: image.Point{X: j * referencePatchSize.X, Y: i * referencePatchSize.Y},
-					Max: image.Point{X: (j + 1) * referencePatchSize.X, Y: (i + 1) * referencePatchSize.Y},
-				})
-				selected, err := imgIndex.Search(clip, aspectRatio)
-				if err != nil {
-					log.Fatal(err)
-				}
-				selectionsChan <- tileSelection{
-					selectedImage: selected,
-					point:         image.Point{X: j, Y: i},
-				}
-			}()
+			// go func() {
+			clip := imaging.Crop(referenceImg, image.Rectangle{
+				Min: image.Point{X: j * referencePatchSize.X, Y: i * referencePatchSize.Y},
+				Max: image.Point{X: (j + 1) * referencePatchSize.X, Y: (i + 1) * referencePatchSize.Y},
+			})
+			selected, err := imgIndex.Search(clip, aspectRatio)
+			if err != nil {
+				log.Fatal(err)
+			}
+			selectionsChan <- tileSelection{
+				selectedImage: selected,
+				point:         image.Point{X: j, Y: i},
+			}
+			// }()
 		}
 	}
 	<-done
@@ -123,6 +127,18 @@ func createOutputImage(imageSource source.ImageSource, tileNames map[string][]im
 }
 
 func doBuild(cmd *cobra.Command, args []string) error {
+	if cpuprofile != "" {
+		f, err := os.Create(cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	imageSource, err := source.NewImageSource(src)
 	if err != nil {
 		return err

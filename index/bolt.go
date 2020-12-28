@@ -1,7 +1,6 @@
 package index
 
 import (
-	"encoding/binary"
 	"fmt"
 	"image"
 	"math/rand"
@@ -19,41 +18,20 @@ import (
 // - data
 //   - dimensions
 //     - int key -> rgba bytes
-//
+// - lab_data
+//   - dimensions
+//     - int key -> lab bytes
 var (
 	indexSuffix = ".index.bolt"
 
-	rootKey  = []byte("v1")
-	namesKey = []byte("names")
-	dataKey  = []byte("data")
+	rootKey    = []byte("v1")
+	namesKey   = []byte("names")
+	dataKey    = []byte("data")
+	labDataKey = []byte("lab_data")
 )
 
 func boltDB(source string) (*bolt.DB, error) {
 	return bolt.Open(source+indexSuffix, 0666, nil)
-}
-
-func pointToBytes(point image.Point) []byte {
-	bytes := make([]byte, binary.MaxVarintLen64*2)
-	xSize := binary.PutVarint(bytes, int64(point.X))
-	ySize := binary.PutVarint(bytes[xSize:], int64(point.Y))
-	return bytes[:xSize+ySize]
-}
-
-func bytesToPoint(bytes []byte) image.Point {
-	x, xSize := binary.Varint(bytes)
-	y, _ := binary.Varint(bytes[xSize:])
-	return image.Point{X: int(x), Y: int(y)}
-}
-
-func intToBytes(i int) []byte {
-	bytes := make([]byte, binary.MaxVarintLen64)
-	size := binary.PutVarint(bytes, int64(i))
-	return bytes[:size]
-}
-
-func bytesToInt(bytes []byte) int {
-	i, _ := binary.Varint(bytes)
-	return int(i)
 }
 
 type boltIndexBuilder struct {
@@ -100,6 +78,19 @@ func (b *boltIndexBuilder) Index(name string, data *analysis.ImageData) error {
 				return err
 			}
 		}
+		labDataBucket, err := rootBucket.CreateBucketIfNotExists(labDataKey)
+		if err != nil {
+			return err
+		}
+		for size, sample := range data.LabSamples {
+			dimensionBucket, err := labDataBucket.CreateBucketIfNotExists(pointToBytes(size))
+			if err != nil {
+				return err
+			}
+			if err := dimensionBucket.Put(intToBytes(id), floatsToBytes(sample)); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 }
@@ -139,13 +130,14 @@ func getName(id int, rootBucket *bolt.Bucket) (string, error) {
 }
 
 func getDistances(dataBucket *bolt.Bucket, size image.Point, bytes []byte, idDistances map[int]float64) error {
+	query := analysis.RGBAToLab(bytes)
 	dimensionBucket := dataBucket.Bucket(pointToBytes(size))
 	if dimensionBucket == nil {
 		return fmt.Errorf("dimension bucket not found")
 	}
 	return dimensionBucket.ForEach(func(k, v []byte) error {
 		id := bytesToInt(k)
-		idDistances[id] = distance(bytes, v)
+		idDistances[id] = floatDistance(query, bytesToFloats(v))
 		return nil
 	})
 }
@@ -163,7 +155,7 @@ func (b *boltIndex) Search(img *image.NRGBA, aspectRatio image.Point) (string, e
 		if rootBucket == nil {
 			return fmt.Errorf("root bucket not found")
 		}
-		dataBucket := rootBucket.Bucket(dataKey)
+		dataBucket := rootBucket.Bucket(labDataKey)
 		if dataBucket == nil {
 			return fmt.Errorf("data bucket not found")
 		}

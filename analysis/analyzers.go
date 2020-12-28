@@ -12,6 +12,7 @@ func Simple(img image.Image, samples int) (*ImageData, error) {
 	data := &ImageData{
 		AspectRatio: util.AspectRatio(img),
 		Samples:     make([]*image.NRGBA, 0),
+		LabSamples:  make(map[image.Point][]float64),
 	}
 
 	// Skip images with weird aspect ratios (not 4:3)
@@ -26,6 +27,7 @@ func Simple(img image.Image, samples int) (*ImageData, error) {
 		}
 		resized := imaging.Resize(img, size.X, size.Y, imaging.NearestNeighbor)
 		data.Samples = append(data.Samples, resized)
+		data.LabSamples[size] = RGBAToLab(resized.Pix)
 	}
 
 	return data, nil

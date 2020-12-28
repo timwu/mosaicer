@@ -9,6 +9,6 @@ import (
 func LogTime(s string) func() {
 	startTime := time.Now()
 	return func() {
-		log.Printf("%s - %v", s, time.Now().Sub(startTime))
+		log.Printf("%s - %v", s, time.Since(startTime))
 	}
 }
