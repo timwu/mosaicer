@@ -28,6 +28,8 @@ var (
 	fuzziness              = 0
 	referencePatchMultiple = 1
 	cpuprofile             = ""
+	tileSelectionThreads   = 2
+	tilingThreads          = 1
 )
 
 func init() {
@@ -69,25 +71,27 @@ func selectImages(imgIndex index.Index, targetImg image.Image, aspectRatio image
 	}()
 
 	log.Printf("selecting images for tiles")
+	limiter := util.NewLimiter(tileSelectionThreads)
 	for i := 0; i < tiles; i++ {
 		for j := 0; j < tiles; j++ {
 			i, j := i, j
-			// go func() {
-			clip := imaging.Crop(referenceImg, image.Rectangle{
-				Min: image.Point{X: j * referencePatchSize.X, Y: i * referencePatchSize.Y},
-				Max: image.Point{X: (j + 1) * referencePatchSize.X, Y: (i + 1) * referencePatchSize.Y},
+			limiter.Go(func() {
+				clip := imaging.Crop(referenceImg, image.Rectangle{
+					Min: image.Point{X: j * referencePatchSize.X, Y: i * referencePatchSize.Y},
+					Max: image.Point{X: (j + 1) * referencePatchSize.X, Y: (i + 1) * referencePatchSize.Y},
+				})
+				selected, err := imgIndex.Search(clip, aspectRatio)
+				if err != nil {
+					log.Fatal(err)
+				}
+				selectionsChan <- tileSelection{
+					selectedImage: selected,
+					point:         image.Point{X: j, Y: i},
+				}
 			})
-			selected, err := imgIndex.Search(clip, aspectRatio)
-			if err != nil {
-				log.Fatal(err)
-			}
-			selectionsChan <- tileSelection{
-				selectedImage: selected,
-				point:         image.Point{X: j, Y: i},
-			}
-			// }()
 		}
 	}
+	limiter.Close()
 	<-done
 	return tileNames, nil
 }
@@ -100,27 +104,32 @@ func createOutputImage(imageSource source.ImageSource, tileNames map[string][]im
 	dstImg := imaging.New(dstImgSize.X, dstImgSize.Y, color.NRGBA{0, 0, 0, 0})
 	progressBar := pb.StartNew(tiles * tiles)
 	rotatedTiles := 0
+	limiter := util.NewLimiter(tilingThreads)
 	for selectedName, points := range tileNames {
-		selectedImg, err := imageSource.GetImage(selectedName)
-		if err != nil {
-			return nil, err
-		}
-
-		// If the image is rotated relative to the target image's aspect ratio, rotate it first
-		if ar := util.AspectRatio(selectedImg); ar.X == aspectRatio.Y && ar.Y == aspectRatio.X {
-			selectedImg = imaging.Rotate270(selectedImg)
-			rotatedTiles++
-		}
-
-		resizedTile := imaging.Resize(selectedImg, tileSize.X, 0, imaging.NearestNeighbor)
-
-		for _, point := range points {
-			if err := util.Paste(dstImg, resizedTile, image.Point{X: point.X * tileSize.X, Y: point.Y * tileSize.Y}); err != nil {
-				return nil, err
+		selectedName := selectedName
+		limiter.Go(func() {
+			selectedImg, err := imageSource.GetImage(selectedName)
+			if err != nil {
+				log.Fatal(err)
 			}
-			progressBar.Increment()
-		}
+
+			// If the image is rotated relative to the target image's aspect ratio, rotate it first
+			if ar := util.AspectRatio(selectedImg); ar.X == aspectRatio.Y && ar.Y == aspectRatio.X {
+				selectedImg = imaging.Rotate270(selectedImg)
+				rotatedTiles++
+			}
+
+			resizedTile := imaging.Resize(selectedImg, tileSize.X, 0, imaging.NearestNeighbor)
+
+			for _, point := range points {
+				if err := util.Paste(dstImg, resizedTile, image.Point{X: point.X * tileSize.X, Y: point.Y * tileSize.Y}); err != nil {
+					log.Fatal(err)
+				}
+				progressBar.Increment()
+			}
+		})
 	}
+	limiter.Close()
 	progressBar.Finish()
 	log.Printf("Used %d rotated tiles", rotatedTiles)
 	return dstImg, nil

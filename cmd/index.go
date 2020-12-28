@@ -8,6 +8,7 @@ import (
 	"github.com/timwu/mosaicer/analysis"
 	"github.com/timwu/mosaicer/index"
 	"github.com/timwu/mosaicer/source"
+	"github.com/timwu/mosaicer/util"
 )
 
 var (
@@ -43,16 +44,12 @@ func doIndex(cmd *cobra.Command, args []string) error {
 	}
 	defer boltIndex.Close()
 
-	liveThreads := make(chan bool, nThreads)
+	limiter := util.NewLimiter(nThreads)
 	progressBar := pb.StartNew(len(names))
 	for _, name := range names {
-		liveThreads <- true
 		name := name
-		go func() {
-			defer func() {
-				<-liveThreads
-				progressBar.Increment()
-			}()
+		limiter.Go(func() {
+			defer progressBar.Increment()
 			img, err := imageSource.GetImage(name)
 			if err != nil {
 				log.Fatal(err)
@@ -64,11 +61,9 @@ func doIndex(cmd *cobra.Command, args []string) error {
 			if err := boltIndex.Index(name, data); err != nil {
 				log.Fatal(err)
 			}
-		}()
+		})
 	}
-	for i := 0; i < nThreads; i++ {
-		liveThreads <- true
-	}
+	limiter.Close()
 	progressBar.Finish()
 	return nil
 }
