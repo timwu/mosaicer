@@ -106,7 +106,7 @@ func createOutputImage(imageSource source.ImageSource, tileNames map[string][]im
 	rotatedTiles := 0
 	limiter := util.NewLimiter(tilingThreads)
 	for selectedName, points := range tileNames {
-		selectedName := selectedName
+		selectedName, points := selectedName, points
 		limiter.Go(func() {
 			selectedImg, err := imageSource.GetImage(selectedName)
 			if err != nil {
