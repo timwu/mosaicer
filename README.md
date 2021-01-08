@@ -31,3 +31,7 @@ In the building phase, we chop the target image into tiles of some multiple of i
 * Only images with matching (or rotated) aspect ratio can be used as tiles. That is if the target image is 4:3, source images of aspect ratio 4:3 or 3:4 will be considered. 3:4 images when used as tiles in this example will be rotated 90 degrees.
 * The tool *always* picks an image for *every* tile. This means that if there are no good fits in the source image collection, you may wind up with a sub-optimal matching tile.
 * Source images with arbitrarily large aspect ratio multiple (multiple 4 and 3 for 4:3 to get 12), are rejected as source images. This is to keep the size of the index reasonable.
+
+## Disclaimer
+
+This is not an officially supported Google product
