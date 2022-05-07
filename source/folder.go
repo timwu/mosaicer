@@ -15,6 +15,7 @@
 package source
 
 import (
+	"fmt"
 	"image"
 	"io/ioutil"
 	"os"
@@ -24,6 +25,18 @@ import (
 
 type folderImageSource struct {
 	dir string
+}
+
+func joinZipFileName(zipFileName, fileName string) string {
+	return zipFileName + "||" + fileName
+}
+
+func splitZipFileName(joinedName string) (string, string, error) {
+	splitName := strings.SplitN(joinedName, "||", 2)
+	if len(splitName) != 2 {
+		return "", "", fmt.Errorf("invalid zip file name to be split")
+	}
+	return splitName[0], splitName[1], nil
 }
 
 func (f folderImageSource) GetImageNames() ([]string, error) {
@@ -36,14 +49,37 @@ func (f folderImageSource) GetImageNames() ([]string, error) {
 		if fileInfo.IsDir() {
 			continue
 		}
-		if imageFileTypes[strings.TrimPrefix(path.Ext(fileInfo.Name()), ".")] {
+		extension := strings.TrimPrefix(path.Ext(fileInfo.Name()), ".")
+		if imageFileTypes[extension] {
 			names = append(names, fileInfo.Name())
+		} else if extension == "zip" {
+			zipSource, err := NewZipImageSource(path.Join(f.dir, fileInfo.Name()))
+			if err != nil {
+				return nil, err
+			}
+			defer zipSource.Close()
+			zipImageNames, err := zipSource.GetImageNames()
+			if err != nil {
+				return nil, err
+			}
+			for i, n := range zipImageNames {
+				zipImageNames[i] = joinZipFileName(fileInfo.Name(), n)
+			}
+			names = append(names, zipImageNames...)
 		}
 	}
 	return names, nil
 }
 
 func (f folderImageSource) GetImage(name string) (image.Image, error) {
+	if zipFileName, imageFileName, err := splitZipFileName(name); err == nil {
+		zipImageSource, err := NewZipImageSource(path.Join(f.dir, zipFileName))
+		if err != nil {
+			return nil, err
+		}
+		defer zipImageSource.Close()
+		return zipImageSource.GetImage(imageFileName)
+	}
 	r, err := os.Open(path.Join(f.dir, name))
 	if err != nil {
 		return nil, err
