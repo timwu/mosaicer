@@ -166,6 +166,7 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	imageSource = source.NewCropSource(imageSource, image.Point{X: 4, Y: 3})
 	defer imageSource.Close()
 	imgIndex, err := index.NewBoltIndex(src, referencePatchMultiple, fuzziness)
 	if err != nil {
@@ -175,7 +176,7 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
+	targetImg = source.CropImageToAspectRatio(targetImg, image.Point{X: 4, Y: 3})
 	aspectRatio := util.AspectRatio(targetImg)
 	tileNames, err := selectImages(imgIndex, targetImg, aspectRatio)
 	if err != nil {

@@ -15,6 +15,7 @@
 package cmd
 
 import (
+	"image"
 	"log"
 
 	"github.com/cheggaaa/pb/v3"
@@ -47,6 +48,7 @@ func doIndex(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	imageSource = source.NewCropSource(imageSource, image.Point{X: 4, Y: 3})
 	defer imageSource.Close()
 	names, err := imageSource.GetImageNames()
 	if err != nil {
