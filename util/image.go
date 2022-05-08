@@ -17,6 +17,9 @@ package util
 import (
 	"fmt"
 	"image"
+	"math"
+	"strconv"
+	"strings"
 )
 
 // greatest common divisor (GCD) via Euclidean algorithm
@@ -57,4 +60,45 @@ func Paste(dst, src *image.NRGBA, loc image.Point) error {
 			src.Pix[row*src.Stride:row*src.Stride+(srcSize.X*4)])
 	}
 	return nil
+}
+
+// Calculate the minimum number of tiles in each direction to go from the tile aspect ratio to the image aspect ratio
+func MinTiles(imageAspectRatio image.Point, tileAspectRatio image.Point) image.Point {
+	target := image.Point{
+		X: tileAspectRatio.Y * imageAspectRatio.X,
+		Y: tileAspectRatio.X * imageAspectRatio.Y,
+	}
+	divisor := gcd(target.X, target.Y)
+	return image.Point{
+		X: target.X / divisor,
+		Y: target.Y / divisor,
+	}
+}
+
+func ConvertTiles(imageAspectRatio, tileAspectRatio image.Point, targetTileCount int) image.Point {
+	minTiles := MinTiles(imageAspectRatio, tileAspectRatio)
+
+	if minTiles.X > minTiles.Y {
+		factor := int(math.Ceil(float64(targetTileCount) / float64(minTiles.X)))
+		return image.Point{minTiles.X * factor, minTiles.Y * factor}
+	} else {
+		factor := int(math.Ceil(float64(targetTileCount) / float64(minTiles.Y)))
+		return image.Point{minTiles.X * factor, minTiles.Y * factor}
+	}
+}
+
+func ParseAspectRatioString(aspectRatio string) (image.Point, error) {
+	split := strings.SplitN(aspectRatio, ":", 2)
+	if len(split) != 2 {
+		return image.Point{}, fmt.Errorf("invalid aspect ratio string %s", aspectRatio)
+	}
+	x, err := strconv.Atoi(split[0])
+	if err != nil {
+		return image.Point{}, err
+	}
+	y, err := strconv.Atoi(split[1])
+	if err != nil {
+		return image.Point{}, err
+	}
+	return image.Point{x, y}, nil
 }

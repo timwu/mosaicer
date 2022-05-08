@@ -39,11 +39,14 @@ var (
 	src                    = ""
 	tiles                  = 0
 	tileMultiple           = 20
+	tileAspectRatio        = image.Point{4, 3}
 	fuzziness              = 0
 	referencePatchMultiple = 1
 	cpuprofile             = ""
 	tileSelectionThreads   = 10
 	tilingThreads          = 16
+
+	cropImageAspectRatio = ""
 )
 
 func init() {
@@ -52,16 +55,22 @@ func init() {
 	buildCmd.Flags().IntVar(&fuzziness, "fuzziness", 5, "number of top images to consider for random selection")
 	buildCmd.Flags().IntVar(&referencePatchMultiple, "referencePatchMultiple", 2, "Multiple of the aspect ratio for sizing a patch of the reference image")
 	buildCmd.Flags().StringVar(&cpuprofile, "cpuprofile", "", "write cpu profile to `file`")
+	buildCmd.Flags().StringVar(&cropImageAspectRatio, "cropImageAspectRatio", "", "Aspect ratio to crop the target image to before tiling.")
 	rootCmd.AddCommand(buildCmd)
 }
 
-func selectImages(imgIndex index.Index, targetImg image.Image, aspectRatio image.Point) (map[string][]image.Point, error) {
-	referencePatchSize := aspectRatio.Mul(referencePatchMultiple)
-	log.Printf("target img aspect ratio %v, base resolution of %v", aspectRatio, targetImg.Bounds().Size())
-	referenceImg := imaging.Resize(targetImg, tiles*referencePatchSize.X, 0, imaging.NearestNeighbor)
+func selectImages(imgIndex index.Index, targetImg image.Image) (map[string][]image.Point, image.Point, error) {
+	referencePatchSize := tileAspectRatio.Mul(referencePatchMultiple)
+
+	imageAspectRatio := util.AspectRatio(targetImg)
+	log.Printf("target img aspect ratio %v, base resolution of %v. Tile aspect ratio %v", imageAspectRatio, targetImg.Bounds().Size(), tileAspectRatio)
+
+	tileCount := util.ConvertTiles(imageAspectRatio, tileAspectRatio, tiles)
+	log.Printf("tile count %v", tileCount)
+	referenceImg := imaging.Resize(targetImg, tileCount.X*referencePatchSize.X, 0, imaging.NearestNeighbor)
 	log.Printf("reference img aspect ratio %v, size %v", util.AspectRatio(referenceImg), referenceImg.Rect.Size())
 
-	progressBar := pb.StartNew(tiles * tiles)
+	progressBar := pb.StartNew(tileCount.X * tileCount.Y)
 	tileNames := make(map[string][]image.Point)
 
 	type tileSelection struct {
@@ -71,7 +80,7 @@ func selectImages(imgIndex index.Index, targetImg image.Image, aspectRatio image
 	selectionsChan := make(chan tileSelection, 10)
 	done := make(chan bool)
 	go func() {
-		for i := 0; i < tiles*tiles; i++ {
+		for i := 0; i < tileCount.X*tileCount.Y; i++ {
 			t := <-selectionsChan
 			if tileNames[t.selectedImage] == nil {
 				tileNames[t.selectedImage] = make([]image.Point, 0)
@@ -86,17 +95,17 @@ func selectImages(imgIndex index.Index, targetImg image.Image, aspectRatio image
 
 	log.Printf("selecting images for tiles")
 	limiter := util.NewLimiter(tileSelectionThreads)
-	for i := 0; i < tiles; i++ {
-		for j := 0; j < tiles; j++ {
+	for i := 0; i < tileCount.Y; i++ {
+		for j := 0; j < tileCount.X; j++ {
 			i, j := i, j
 			limiter.Go(func() {
 				clip := imaging.Crop(referenceImg, image.Rectangle{
 					Min: image.Point{X: j * referencePatchSize.X, Y: i * referencePatchSize.Y},
 					Max: image.Point{X: (j + 1) * referencePatchSize.X, Y: (i + 1) * referencePatchSize.Y},
 				})
-				selected, err := imgIndex.Search(clip, aspectRatio)
+				selected, err := imgIndex.Search(clip, tileAspectRatio)
 				if err != nil {
-					log.Fatal(err)
+					log.Fatalf("i=%d,j=%d err=%v", i, j, err)
 				}
 				selectionsChan <- tileSelection{
 					selectedImage: selected,
@@ -107,16 +116,16 @@ func selectImages(imgIndex index.Index, targetImg image.Image, aspectRatio image
 	}
 	limiter.Close()
 	<-done
-	return tileNames, nil
+	return tileNames, tileCount, nil
 }
 
-func createOutputImage(imageSource source.ImageSource, tileNames map[string][]image.Point, aspectRatio image.Point) (*image.NRGBA, error) {
+func createOutputImage(imageSource source.ImageSource, tileNames map[string][]image.Point, tileCount image.Point) (*image.NRGBA, error) {
 	log.Printf("Building output image")
-	tileSize := aspectRatio.Mul(tileMultiple)
-	dstImgSize := tileSize.Mul(tiles)
+	tileSize := tileAspectRatio.Mul(tileMultiple)
+	dstImgSize := image.Point{X: tileSize.X * tileCount.X, Y: tileSize.Y * tileCount.Y}
 	log.Printf("dst img size %v", dstImgSize)
 	dstImg := imaging.New(dstImgSize.X, dstImgSize.Y, color.NRGBA{0, 0, 0, 0})
-	progressBar := pb.StartNew(tiles * tiles)
+	progressBar := pb.StartNew(tileCount.X * tileCount.Y)
 	rotatedTiles := 0
 	limiter := util.NewLimiter(tilingThreads)
 	for selectedName, points := range tileNames {
@@ -128,7 +137,7 @@ func createOutputImage(imageSource source.ImageSource, tileNames map[string][]im
 			}
 
 			// If the image is rotated relative to the target image's aspect ratio, rotate it first
-			if ar := util.AspectRatio(selectedImg); ar.X == aspectRatio.Y && ar.Y == aspectRatio.X {
+			if ar := util.AspectRatio(selectedImg); ar.X == tileAspectRatio.Y && ar.Y == tileAspectRatio.X {
 				selectedImg = imaging.Rotate270(selectedImg)
 				rotatedTiles++
 			}
@@ -176,15 +185,22 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	targetImg = source.CropImageToAspectRatio(targetImg, image.Point{X: 4, Y: 3})
-	aspectRatio := util.AspectRatio(targetImg)
-	tileNames, err := selectImages(imgIndex, targetImg, aspectRatio)
+
+	if cropImageAspectRatio != "" {
+		croppedAspectRatio, err := util.ParseAspectRatioString(cropImageAspectRatio)
+		if err != nil {
+			return err
+		}
+		targetImg = source.CropImageToAspectRatio(targetImg, croppedAspectRatio)
+	}
+
+	tileNames, tileCount, err := selectImages(imgIndex, targetImg)
 	if err != nil {
 		return err
 	}
 
 	log.Printf("Used %d unique images.", len(tileNames))
-	dstImg, err := createOutputImage(imageSource, tileNames, aspectRatio)
+	dstImg, err := createOutputImage(imageSource, tileNames, tileCount)
 	if err != nil {
 		return err
 	}

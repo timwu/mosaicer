@@ -147,7 +147,7 @@ func getDistances(dataBucket *bolt.Bucket, size image.Point, bytes []byte, idDis
 	query := analysis.RGBAToLab(bytes)
 	dimensionBucket := dataBucket.Bucket(pointToBytes(size))
 	if dimensionBucket == nil {
-		return fmt.Errorf("dimension bucket not found")
+		return fmt.Errorf("dimension bucket not found: %v", size)
 	}
 	return dimensionBucket.ForEach(func(k, v []byte) error {
 		id := bytesToInt(k)
@@ -163,7 +163,6 @@ func (b *boltIndex) Search(img *image.NRGBA, aspectRatio image.Point) (string, e
 		size = image.Point{X: 1, Y: 1}
 	}
 	resized := imaging.Resize(img, size.X, size.Y, imaging.NearestNeighbor)
-
 	if err := b.db.View(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket(rootKey)
 		if rootBucket == nil {
