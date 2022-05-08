@@ -55,7 +55,7 @@ func init() {
 	buildCmd.Flags().IntVar(&fuzziness, "fuzziness", 5, "number of top images to consider for random selection")
 	buildCmd.Flags().IntVar(&referencePatchMultiple, "referencePatchMultiple", 2, "Multiple of the aspect ratio for sizing a patch of the reference image")
 	buildCmd.Flags().StringVar(&cpuprofile, "cpuprofile", "", "write cpu profile to `file`")
-	buildCmd.Flags().StringVar(&cropImageAspectRatio, "cropImageAspectRatio", "", "Aspect ratio to crop the target image to before tiling.")
+	buildCmd.Flags().StringVar(&cropImageAspectRatio, "cropImageAspectRatio", "auto", "Aspect ratio to crop the target image to before tiling.")
 	rootCmd.AddCommand(buildCmd)
 }
 
@@ -186,7 +186,9 @@ func doBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if cropImageAspectRatio != "" {
+	if cropImageAspectRatio == "auto" {
+		targetImg = source.CropImageToAspectRatio(targetImg, util.NearestSaneAspectRatio(util.AspectRatio(targetImg)))
+	} else if cropImageAspectRatio != "none" {
 		croppedAspectRatio, err := util.ParseAspectRatioString(cropImageAspectRatio)
 		if err != nil {
 			return err

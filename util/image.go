@@ -22,6 +22,30 @@ import (
 	"strings"
 )
 
+var (
+	saneRatios = map[float64]image.Point{
+		1.0:        image.Point{1, 1},
+		4.0 / 3.0:  image.Point{4, 3},
+		16.0 / 9.0: image.Point{16, 9},
+	}
+)
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	} else {
+		return b
+	}
+}
+
 // greatest common divisor (GCD) via Euclidean algorithm
 func gcd(a, b int) int {
 	for b != 0 {
@@ -101,4 +125,17 @@ func ParseAspectRatioString(aspectRatio string) (image.Point, error) {
 		return image.Point{}, err
 	}
 	return image.Point{x, y}, nil
+}
+
+func NearestSaneAspectRatio(aspectRatio image.Point) image.Point {
+	ratio := float64(max(aspectRatio.X, aspectRatio.Y)) / float64(min(aspectRatio.Y, aspectRatio.X))
+	returnRatio := aspectRatio
+	nearestDistance := math.MaxFloat64
+	for r, p := range saneRatios {
+		if distance := math.Abs(r - ratio); distance < nearestDistance {
+			nearestDistance = distance
+			returnRatio = p
+		}
+	}
+	return returnRatio
 }
