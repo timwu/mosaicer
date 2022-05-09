@@ -16,7 +16,6 @@ package cmd
 
 import (
 	"image"
-	"image/color"
 	"log"
 	"os"
 	"runtime/pprof"
@@ -45,6 +44,7 @@ var (
 	cpuprofile             = ""
 	tileSelectionThreads   = 10
 	tilingThreads          = 16
+	blend                  = 1.0
 
 	cropImageAspectRatio = ""
 )
@@ -56,6 +56,7 @@ func init() {
 	buildCmd.Flags().IntVar(&referencePatchMultiple, "referencePatchMultiple", 2, "Multiple of the aspect ratio for sizing a patch of the reference image")
 	buildCmd.Flags().StringVar(&cpuprofile, "cpuprofile", "", "write cpu profile to `file`")
 	buildCmd.Flags().StringVar(&cropImageAspectRatio, "cropImageAspectRatio", "auto", "Aspect ratio to crop the target image to before tiling.")
+	buildCmd.Flags().Float64Var(&blend, "blend", 1.0, "Opacity of the tile on top of the source image. Must be between (0.0, 1.0]. 1.0 means the tile is opaque and covers up the source image.")
 	rootCmd.AddCommand(buildCmd)
 }
 
@@ -119,12 +120,13 @@ func selectImages(imgIndex index.Index, targetImg image.Image) (map[string][]ima
 	return tileNames, tileCount, nil
 }
 
-func createOutputImage(imageSource source.ImageSource, tileNames map[string][]image.Point, tileCount image.Point) (*image.NRGBA, error) {
+func createOutputImage(targetImg image.Image, imageSource source.ImageSource, tileNames map[string][]image.Point, tileCount image.Point) (*image.NRGBA, error) {
 	log.Printf("Building output image")
 	tileSize := tileAspectRatio.Mul(tileMultiple)
 	dstImgSize := image.Point{X: tileSize.X * tileCount.X, Y: tileSize.Y * tileCount.Y}
 	log.Printf("dst img size %v", dstImgSize)
-	dstImg := imaging.New(dstImgSize.X, dstImgSize.Y, color.NRGBA{0, 0, 0, 0})
+	// dstImg := imaging.New(dstImgSize.X, dstImgSize.Y, color.NRGBA{0, 0, 0, 0})
+	dstImg := imaging.Resize(targetImg, dstImgSize.X, dstImgSize.Y, imaging.Lanczos)
 	progressBar := pb.StartNew(tileCount.X * tileCount.Y)
 	rotatedTiles := 0
 	limiter := util.NewLimiter(tilingThreads)
@@ -145,7 +147,7 @@ func createOutputImage(imageSource source.ImageSource, tileNames map[string][]im
 			resizedTile := imaging.Resize(selectedImg, tileSize.X, 0, imaging.NearestNeighbor)
 
 			for _, point := range points {
-				if err := util.Paste(dstImg, resizedTile, image.Point{X: point.X * tileSize.X, Y: point.Y * tileSize.Y}); err != nil {
+				if err := util.Paste(dstImg, resizedTile, image.Point{X: point.X * tileSize.X, Y: point.Y * tileSize.Y}, blend); err != nil {
 					log.Fatal(err)
 				}
 				progressBar.Increment()
@@ -202,7 +204,7 @@ func doBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Printf("Used %d unique images.", len(tileNames))
-	dstImg, err := createOutputImage(imageSource, tileNames, tileCount)
+	dstImg, err := createOutputImage(targetImg, imageSource, tileNames, tileCount)
 	if err != nil {
 		return err
 	}

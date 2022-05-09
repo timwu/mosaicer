@@ -20,6 +20,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/disintegration/imaging"
 )
 
 var (
@@ -68,7 +70,11 @@ func AspectRatio(img image.Image) image.Point {
 
 // Paste the src image into the dst image at the given location on the dst image. returns
 // an error if the src image would not fit
-func Paste(dst, src *image.NRGBA, loc image.Point) error {
+func Paste(dst, src *image.NRGBA, loc image.Point, blend float64) error {
+	if blend <= 0.0 || blend > 1.0 {
+		return fmt.Errorf("blend must be between (0.0, 1.0]")
+	}
+
 	srcSize := src.Rect.Size()
 	dstSize := dst.Rect.Size()
 
@@ -79,10 +85,16 @@ func Paste(dst, src *image.NRGBA, loc image.Point) error {
 		return fmt.Errorf("too big in Y direction")
 	}
 
+	if blend < 1.0 {
+		background := imaging.Crop(dst, image.Rect(loc.X, loc.Y, loc.X+srcSize.X, loc.Y+srcSize.Y))
+		src = imaging.Overlay(background, src, image.Point{0, 0}, blend)
+	}
+
 	for row := 0; row < srcSize.Y; row++ {
 		copy(dst.Pix[(loc.Y+row)*dst.Stride+(loc.X*4):(loc.Y+row)*dst.Stride+(loc.X*4)+(srcSize.X*4)],
 			src.Pix[row*src.Stride:row*src.Stride+(srcSize.X*4)])
 	}
+
 	return nil
 }
 
